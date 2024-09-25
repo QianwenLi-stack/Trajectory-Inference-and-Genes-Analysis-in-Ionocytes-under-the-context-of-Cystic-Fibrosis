@@ -1,0 +1,4 @@
+# Trajectory-Inference-and-Genes-Analysis-in-Ionocytes-under-the-context-of-Cystic-Fibrosis
+
+3a: Introduction
+Many interesting biological processes could demonstrate itself as a continuum of dynamic cellular states. In  Part 1 and Part 2, we mainly focused on analyzing the clustered ionocytes and their subtypes, which are static snapshots of discrete cellular states and could not reveal temporal changes in gene expression underlying dynamic biological processes such as cell differentiation and disease progression. In this module, I will perform pseudotime analysis to study the dynamic properties of human airway epithelial cells, with a focus on ionocytes and their subtypes. By analyzing their differential expressed genes with respect to pseudotime and the enriched pathways, the main goal here is to explore potential ionocyte cell state transitions that might be associated with cystic fibrosis, providing insight into potential therapeutic targets.
