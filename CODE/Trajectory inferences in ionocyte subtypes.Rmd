@@ -1,0 +1,300 @@
+---
+title: "Trajectory gene analysis in ionocyte subtypes"
+output: html_document
+date: "2024-05-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Packages
+```{r }
+library(slingshot)
+library(Seurat)
+library(devtools)
+library(cowplot)
+library(ggplot2)
+library(Matrix)
+library(dplyr)
+library(RColorBrewer)
+library(DelayedMatrixStats)
+library(scales)
+library(viridis)
+
+```
+
+
+## ionocyte subtypes trajectory analysis
+### load in the data, run slingshot, plot pseudo-time
+```{r }
+## 
+Idents(ionocytes) <- ionocytes$leiden_res_0.1
+
+ionocytes.s0 <- subset(ionocytes,idents="0")
+DefaultAssay(ionocytes.s0)<-'integrated'
+ionocytes.s0.sce <-  as.SingleCellExperiment(ionocytes.s0) 
+
+sce_slingshot1.ionocytes.s0<- slingshot(ionocytes.s0.sce, clusterLabels = 'leiden_res_0.1', reducedDim = 'TSNE')
+SlingshotDataSet(sce_slingshot1.ionocytes.s0) 
+summary(sce_slingshot1.ionocytes.s0$slingPseudotime_1)
+
+# plot trajectory
+colors <-  hcl.colors(50, palette = "viridis")
+plot(reducedDims(sce_slingshot1.ionocytes.s0)$TSNE, col = colors[cut(sce_slingshot1.ionocytes.s0$slingPseudotime_1,breaks=50)], pch=20,cex=2,asp=1.5)
+title(main="Trajectory inferences in ionocyte subtype 0")
+
+PlotTools::SpectrumLegend(
+  "topleft",                             # Legend position
+  palette = colors,                     # Display our chosen palette
+  legend = seq(50, 0, length.out = 5),  # Annotate positions on legend
+  title = "Pseudotime",
+  bty = "n"                              # Don't frame with box
+)
+
+```
+
+## KS test in ionocyte subtype 0
+```{r }
+
+ks.test(slingPseudotime(sce_slingshot1.ionocytes.s0)[colData(sce_slingshot1.ionocytes.s0)$type=="CO",1],
+        slingPseudotime(sce_slingshot1.ionocytes.s0)[colData(sce_slingshot1.ionocytes.s0)$type=="CF",1]
+)
+
+```
+
+## Test trajectory genes in s0
+```{r }
+
+pseudo.ionocytes.s0 <- TSCAN::testPseudotime(ionocytes.s0.sce, pseudotime=sce_slingshot1.ionocytes.s0$slingPseudotime_1)
+
+pseudo_genes.ionocytes.s0 <- subset(pseudo.ionocytes.s0, FDR < 0.05 & abs(logFC) > 0.05)
+
+
+sorted.s0 <- pseudo_genes.ionocytes.s0[order(pseudo_genes.ionocytes.s0$FDR),]
+
+
+up.ionocytes.s0 <- sorted.s0[sorted.s0$logFC > 0,]
+down.ionocytes.s0 <- sorted.s0[sorted.s0$logFC < 0,]
+head(up.ionocytes.s0,10)
+head(down.ionocytes.s0,10)
+
+```
+
+```{r }
+
+pseudo.ionocytes.s0 <- TSCAN::testPseudotime(ionocytes.s0.sce, pseudotime=sce_slingshot1.ionocytes.s0$slingPseudotime_1)
+
+pseudo_genes.ionocytes.s0 <- subset(pseudo.ionocytes.s0, FDR < 0.05 & abs(logFC) > 0.05)
+
+
+sorted.s0 <- pseudo_genes.ionocytes.s0[order(pseudo_genes.ionocytes.s0$FDR),]
+
+
+up.ionocytes.s0 <- sorted.s0[sorted.s0$logFC > 0,]
+down.ionocytes.s0 <- sorted.s0[sorted.s0$logFC < 0,]
+head(up.ionocytes.s0,10)
+head(down.ionocytes.s0,10)
+
+```
+
+## Heatmap
+```{r }
+library(ComplexHeatmap)
+library(circlize)
+
+## annotate pseudo time
+col_fun = colorRamp2(c(0,25,50), c("darkblue","darkgreen", "yellow"))
+ha = HeatmapAnnotation(pseudotime=DE_iono_order.s0,col = list(pseudotime=col_fun))
+
+col_fun_2 = colorRamp2(c(0,1), c("white","black"))
+ha_disease = HeatmapAnnotation(CF=DE_iono_disease.numerical.s0,col = list(CF=col_fun_2))
+ 
+
+
+Heatmap(as.matrix(DE_iono_matrix.s0), name = "expression",cluster_columns=FALSE,
+    bottom_annotation = ha,top_annotation= ha_disease,show_row_names = FALSE,
+    show_column_names = FALSE, row_title = NULL, show_row_dend = TRUE) 
+
+```
+
+
+###### gene enrichment
+```{r }
+
+# define the rankings of all the genes
+rankings.s0 <- sign(pseudo.ionocytes.s0$logFC)*(-log10(pseudo.ionocytes.s0$p.value))
+names(rankings.s0) <-rownames(pseudo.ionocytes.s0)
+
+rankings.s0 <- sort(rankings.s0, decreasing = TRUE)
+
+
+
+
+## C5 category is according to gene ontology grouping: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4707969/pdf/nihms-743907.pdf
+geneSets0 <- msigdbr(species = "Homo sapiens", category = "C5", subcategory = "BP")
+### filter background to only include genes that we assessed.
+geneSets0$gene_symbol <- toupper(geneSets0$gene_symbol)
+geneSets0 <- geneSets0[geneSets0$gene_symbol %in% names(ionocytes.s0.sce),]
+m_list.s0 <- geneSets0 %>% split(x = .$gene_symbol, f = .$gs_name)
+
+
+fgseaRes.s0 <- fgsea(pathways = m_list.s0, stats = rankings.s0, nperm = 5e4, minSize = 10)
+
+ooEA <- order(fgseaRes.s0$pval, decreasing = FALSE)
+head(fgseaRes.s0[ooEA, 1:3], n = 20)
+
+```
+
+```{r }
+topPathwaysUp.s0<- fgseaRes.s0[ES > 0][head(order(pval), n=10), pathway]
+topPathwaysDown.s0 <- fgseaRes.s0[ES < 0][head(order(pval), n=10), pathway]
+topPathways.s0 <- c(topPathwaysUp.s0, rev(topPathwaysDown.s0))
+plotGseaTable(m_list.s0[topPathways.s0], rankings.s0, fgseaRes.s0, 
+              gseaParam=0.5)
+```
+
+
+
+# ionocyte subtype 1
+
+```{r }
+
+## 
+Idents(ionocytes) <- ionocytes$leiden_res_0.1
+
+ionocytes.s1 <- subset(ionocytes,idents="1")
+DefaultAssay(ionocytes.s1)<-'integrated'
+ionocytes.s1.sce <-  as.SingleCellExperiment(ionocytes.s1) 
+
+sce_slingshot1.ionocytes.s1<- slingshot(ionocytes.s1.sce, clusterLabels = 'leiden_res_0.1', reducedDim = 'TSNE')
+SlingshotDataSet(sce_slingshot1.ionocytes.s1) 
+summary(sce_slingshot1.ionocytes.s1$slingPseudotime_1)
+
+# plot trajectory
+colors <-  hcl.colors(30, palette = "viridis")
+plot(reducedDims(sce_slingshot1.ionocytes.s1)$TSNE, col = colors[cut(sce_slingshot1.ionocytes.s1$slingPseudotime_1,breaks=50)], pch=20,cex=2,asp=1.5)+
+title(main = "Tractory inference in ionocytes subtype 1 ")
+PlotTools::SpectrumLegend(
+  "topleft",                             # Legend position
+  palette = colors,                     # Display our chosen palette
+  legend = seq(30, 0, length.out = 5),  # Annotate positions on legend
+  title = "Pseudotime",
+  bty = "n"                              # Don't frame with box
+)
+
+
+
+
+
+```
+
+```{r }
+ks.test(slingPseudotime(sce_slingshot1.ionocytes.s1)[colData(sce_slingshot1.ionocytes.s1)$type=="CO",1],
+        slingPseudotime(sce_slingshot1.ionocytes.s1)[colData(sce_slingshot1.ionocytes.s1)$type=="CF",1]
+)
+
+```
+
+## trajectory gene test
+```{r }
+
+pseudo.ionocytes.s1 <- TSCAN::testPseudotime(ionocytes.s1.sce, pseudotime=sce_slingshot1.ionocytes.s1$slingPseudotime_1)
+
+pseudo_genes.ionocytes.s1 <- subset(pseudo.ionocytes.s1, FDR < 0.05 & abs(logFC) > 0.05)
+
+
+sorted.s1 <- pseudo_genes.ionocytes.s1[order(pseudo_genes.ionocytes.s1$FDR),]
+
+
+up.ionocytes.s1 <- sorted.s1[sorted.s1$logFC > 0,]
+down.ionocytes.s1 <- sorted.s1[sorted.s1$logFC < 0,]
+head(up.ionocytes.s1,10)
+head(down.ionocytes.s1,10)
+
+
+```
+
+
+## ionocytes trajectory gene visualization
+```{r }
+## prepare the matrix
+DE_gene_iono.s1=rownames(pseudo_genes.ionocytes.s1)
+log_count_matrix= ionocytes.s1.sce@assays@data$logcounts
+DE_iono_matrix.s1= log_count_matrix[rownames(log_count_matrix) %in% DE_gene_iono.s1,]
+### order the cells using their pseudo time
+DE_iono_order.s1 = slingPseudotime(sce_slingshot1.ionocytes.s1)
+DE_iono_order.s1=DE_iono_order.s1[order(DE_iono_order.s1),] ## also has pseudotime info
+
+DE_iono_matrix.s1= DE_iono_matrix.s1[,names(DE_iono_order.s1)]
+
+## prepare the annotation
+#### Disease
+DE_iono_disease.s1= ionocytes.s1.sce$type
+names(DE_iono_disease.s1) = colnames(log_count_matrix)
+DE_iono_disease.s1=DE_iono_disease.s1[names(DE_iono_order.s1)]
+DE_iono_disease.numerical.s1 = as.numeric(ifelse(DE_iono_disease.s1=="CO",0,1))
+names(DE_iono_disease.numerical.s1)=names(DE_iono_disease.s1)
+
+```
+
+
+## Heatmap
+```{r }
+library(ComplexHeatmap)
+library(circlize)
+
+## annotate pseudo time
+col_fun = colorRamp2(c(0,15,30), c("darkblue","darkgreen", "yellow"))
+ha = HeatmapAnnotation(pseudotime=DE_iono_order.s1,col = list(pseudotime=col_fun))
+
+col_fun_2 = colorRamp2(c(0,1), c("white","black"))
+ha_disease = HeatmapAnnotation(CF=DE_iono_disease.numerical.s1,col = list(CF=col_fun_2))
+ 
+
+
+Heatmap(as.matrix(DE_iono_matrix.s1), name = "expression",cluster_columns=FALSE,
+    bottom_annotation = ha,top_annotation= ha_disease,show_row_names = FALSE,
+    show_column_names = FALSE, row_title = NULL, show_row_dend = TRUE) 
+
+```
+
+###### gene enrichment
+```{r }
+library(msigdbr)
+
+library("fgsea")
+
+# define the rankings of all the genes
+rankings.s1 <- sign(pseudo.ionocytes.s1$logFC)*(-log10(pseudo.ionocytes.s1$p.value))
+names(rankings.s1) <-rownames(pseudo.ionocytes.s1)
+
+rankings.s1 <- sort(rankings.s1, decreasing = TRUE)
+
+
+
+
+## C5 category is according to gene ontology grouping: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4707969/pdf/nihms-743907.pdf
+geneSets1 <- msigdbr(species = "Homo sapiens", category = "C5", subcategory = "BP")
+### filter background to only include genes that we assessed.
+geneSets1$gene_symbol <- toupper(geneSets1$gene_symbol)
+geneSets1 <- geneSets1[geneSets1$gene_symbol %in% names(ionocytes.s1.sce),]
+m_list.s1 <- geneSets1 %>% split(x = .$gene_symbol, f = .$gs_name)
+
+
+fgseaRes.s1 <- fgsea(pathways = m_list.s1, stats = rankings.s1, nperm = 5e4, minSize = 10)
+
+ooEA.s1<- order(fgseaRes.s1$pval, decreasing = FALSE)
+head(fgseaRes.s1[ooEA.s1, 1:3], n = 20)
+
+```
+
+
+```{r }
+topPathwaysUp.s1<- fgseaRes.s1[ES > 0][head(order(pval), n=10), pathway]
+topPathwaysDown.s1 <- fgseaRes.s1[ES < 0][head(order(pval), n=10), pathway]
+topPathways.s1 <- c(topPathwaysUp.s1, rev(topPathwaysDown.s1))
+plotGseaTable(m_list[topPathways.s1], rankings.s1, fgseaRes.s1,
+              gseaParam=0.5)
+```
+

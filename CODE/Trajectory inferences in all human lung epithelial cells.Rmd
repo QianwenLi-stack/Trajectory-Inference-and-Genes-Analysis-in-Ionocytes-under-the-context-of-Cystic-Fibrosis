@@ -1,0 +1,97 @@
+---
+title: "Trajectory inferences in all human lung epithelial cells"
+output: html_document
+date: "2024-05-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load in the packages
+
+```{r }
+library(slingshot)
+library(Seurat)
+library(devtools)
+library(cowplot)
+library(ggplot2)
+library(Matrix)
+library(dplyr)
+library(RColorBrewer)
+library(DelayedMatrixStats)
+library(scales)
+library(viridis)
+```
+
+
+## Load in the packages
+
+
+## Load in data
+```{r }
+## load in the clustered results
+GEO1 = readRDS("GEO1ClusterSeurat")
+DefaultAssay(GEO1)<-"integrated"
+GEO1 = UpdateSeuratObject(object = GEO1)
+
+```
+
+## Trajectory analysis with slingshot
+```{r }
+# perpare the data from seurat object into format based on which slingshot could run
+
+## Use seurat function to get assay and annotate the assay with meta data.
+subset_integrated_slot <- GetAssay(GEO1,assay = "integrated")
+DefaultAssay(GEO1)<-"integrated"
+subset_integrated_slot <- AddMetaData(GEO1,metadata = GEO1@meta.data)
+sce <-  as.SingleCellExperiment(subset_integrated_slot)
+
+```
+
+```{r }
+## Run trajectory analysis with slingshot
+
+sce_slingshot1<- slingshot(sce, clusterLabels = 'leiden_res_0.1', reducedDim = 'TSNE') # load the TSNE results from part 1 module
+path1=SlingshotDataSet(sce_slingshot1) # two lineages are indentified
+summary(sce_slingshot1$slingPseudotime_1)
+summary(sce_slingshot1$slingPseudotime_2)
+```
+
+## visualization of the estimated pseudotime on t-SNE plot
+```{r }
+library(grDevices)
+library(PlotTools)
+
+colors <-  hcl.colors(100, palette = "viridis")
+plot(reducedDims(sce_slingshot1)$TSNE, col = colors[cut(sce_slingshot1$slingPseudotime_1,breaks=100)], pch=0.1,cex=0.1,asp=1.5)+
+lines(SlingshotDataSet(sce_slingshot1), col = 'black',lwd=2)
+title(main = "Tractory inference in all human airway cells")
+
+PlotTools::SpectrumLegend(
+  "topleft",                             # Legend position
+  palette = colors,                     # Display our chosen palette
+  legend = seq(170, 0, length.out = 5),  # Annotate positions on legend
+  title = "Pseudotime",
+  bty = "n"                              # Don't frame with box
+)
+
+
+```
+
+## Test Differential progression between CF disease cells and CO healthy cells
+```{r }
+# Kolmogorov-Smirnov test for lineage 1
+ks.test(slingPseudotime(sce_slingshot1)[colData(sce_slingshot1)$type=="CO",1],
+        slingPseudotime(sce_slingshot1)[colData(sce_slingshot1)$type=="CF",1]
+)
+
+
+# Kolmogorov-Smirnov test for lineage 2
+ks.test(slingPseudotime(sce_slingshot1)[colData(sce_slingshot1)$type=="CO",2],
+        slingPseudotime(sce_slingshot1)[colData(sce_slingshot1)$type=="CF",2]
+)
+```
+
+
+
